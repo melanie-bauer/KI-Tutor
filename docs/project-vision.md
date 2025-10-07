@@ -26,7 +26,9 @@ HTL Leonding has emerged as a **national leader in AI education**. This project 
   * Editing system prompts, and
   * Selecting the underlying LLM (Large Language Model) for each tutor.
 * Students can use these tutors but cannot modify their configurations.
-* Students in programming classes can interact with LLM APIs directly via API keys or access tokens.
+* Students in programming classes can
+  * interact with LLM APIs directly via API keys or access tokens.
+  * connect AI coding tools like _continue.dev_ or _Kilo Code_ to the LLM API provided by this project. Used tokens must be counted against their cost budgets.
 * The system provides budget control, allowing schools to assign token or cost budgets per time period (hour, day, week, month).
 * AI Tutors can:
   * Display mathematical formulas and code correctly.
