@@ -54,6 +54,23 @@ HTL Leonding has emerged as a **national leader in AI education**. This project 
 * Mobile usability for teachers and students.
 * Configuration flexibility so that other schools can easily adopt the solution.
 
+## Project Scope and Deliverables
+
+**This is not just a prototype.** The AI Tutor platform must be production-ready, fully operational, and actively used by teachers and students at HTL Leonding during the project timeline.
+
+The project team is responsible for:
+
+* Delivering a working system that meets all minimal goals and as many extended goals as feasible.
+* Deploying the platform in a production environment (on-premises or European cloud infrastructure).
+* Providing active support during rollout and use, including:
+  * Technical troubleshooting and bug fixes
+  * User onboarding and training materials
+  * Documentation for administrators, teachers, and students
+* Iterating based on real-world feedback from teachers and students during operation.
+* The solution must be maintainable and transferable to other schools after the project phase ends.
+
+Success will be measured not by technical feasibility alone, but by actual classroom adoption and sustained use.
+
 ## Educational Value
 
 This project promotes AI literacy and responsible use of modern technologies by:
