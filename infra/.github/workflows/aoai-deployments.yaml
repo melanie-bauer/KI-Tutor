@@ -1,0 +1,33 @@
+name: Deploy AOAI model deployments
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - infra/bicep/aoai-deployments.bicepparam
+      - infra/bicep/modules/aoai-deployments.bicep
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with: // Muss in GitHub Secrets konfiguriert sein -> wer auch immer des ändern kann
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy Bicep (AOAI deployments only)
+        uses: azure/arm-deploy@v2
+        with:
+          scope: resourcegroup
+          resourceGroupName: ${{ vars.AZ_RESOURCE_GROUP }}
+          template: infra/bicep/modules/aoai-deployments.bicep
+          parameters: infra/bicep/aoai-deployments.bicepparam
