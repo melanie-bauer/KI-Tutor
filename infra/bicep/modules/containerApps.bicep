@@ -128,7 +128,7 @@ resource liteLLMApp 'Microsoft.App/containerApps@2025-07-01' = {
 
             {
               name: 'MODEL_LIST'
-              value: '''[{"model_name":"gpt-4o","litellm_provider":"azure","azure_deployment":"gpt-4o-mini"}]'''
+              value: '''[{"model_name":"gpt-4o-mini","litellm_provider":"azure","azure_deployment":"gpt-4o-mini"}]'''
             }
           ]
         }
