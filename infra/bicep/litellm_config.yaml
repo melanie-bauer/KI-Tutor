@@ -1,0 +1,51 @@
+# General Settings
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  
+  # Database connection for per-user spending tracking (REQUIRED)
+  database_url: os.environ/DATABASE_URL
+  
+  # User header mappings for Open WebUI integration
+  # This enables per-user tracking from Open WebUI
+  user_header_mappings:
+    - header_name: X-OpenWebUI-User-Id
+      litellm_user_role: internal_user
+    - header_name: X-OpenWebUI-User-Email
+      litellm_user_role: customer
+
+  # UI Settings
+  ui_access_mode: "all"  # Allow UI access for managing users/keys
+
+  store_model_in_db: true
+  store_prompts_in_spend_logs: true
+  
+# LiteLLM Settings
+litellm_settings:
+  # Enable spend tracking
+  success_callback: ["langfuse"]  # Optional: add logging integrations
+  
+  # Default key generation parameters (optional)
+  default_key_generate_params:
+    max_budget: 100.0      # Default $100 budget per key
+    budget_duration: "30d"  # Reset monthly
+    
+  # Drop unmapped params to prevent errors
+  drop_params: true
+  
+# Router Settings (optional - for load balancing multiple deployments)
+router_settings:
+  routing_strategy: "simple-shuffle"
+  num_retries: 2
+  timeout: 60
+
+model_list:
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: azure/gpt-4o-mini
+      api_base: os.environ/AZURE_API_BASE
+      api_key: os.environ/AZURE_API_KEY
+      api_version: os.environ/AZURE_API_VERSION
+
+# Cost Tracking
+# LiteLLM automatically tracks costs for known models
+# Custom pricing can be set per model if needed

@@ -2,20 +2,20 @@ param openWebUIName string
 param liteLLMName string
 param openWebUIImage string
 param liteLLMImage string
-param envId string // Resource ID of the managed environment
-param userIdentityResourceId string // Resource ID of the user-assigned identity
+param envId string // Resource ID der Container Apps Environment
+param userIdentityResourceId string // Resource ID der User-Assigned Managed Identity
 param keyVaultName string
 param azureOpenAIBaseUrl string
 param azureOpenAIApiVersion string
+param location string
 
-// Open WebUI Container App (exposed publicly)
+// Open WebUI Container App (öffentlich erreichbar)
 resource openWebUIApp 'Microsoft.App/containerApps@2025-07-01' = {
   name: openWebUIName
-  location: resourceGroup().location
+  location: location
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
-      // Attach the same managed identity we created
       '${userIdentityResourceId}': {}
     }
   }
@@ -23,25 +23,18 @@ resource openWebUIApp 'Microsoft.App/containerApps@2025-07-01' = {
     managedEnvironmentId: envId
     configuration: {
       ingress: {
-        external: true // publicly accessible
-        targetPort: 8080 // Open WebUI listens on port 8080
+        external: true          // öffentlich zugänglich
+        targetPort: 8080        // Open WebUI hört auf Port 8080
         transport: 'auto'
-        allowInsecure: false // enforce HTTPS (automatic redirect from HTTP)
+        allowInsecure: false    // HTTPS erzwingen
       }
       secrets: [
         {
           name: 'azure-openai-key'
-          // Reference to the Key Vault secret (latest version):contentReference[oaicite:26]{index=26}:contentReference[oaicite:27]{index=27}
+          // Verweis auf Key Vault Secret (neueste Version)
           keyVaultUrl: 'https://${keyVaultName}.vault.azure.net/secrets/AzureOpenAIKey'
-          identity: userIdentityResourceId // use the user-assigned identity to access Key Vault
+          identity: userIdentityResourceId
         }
-      ]
-      registries: [
-        // (Optional) If pulling a private image from ACR using managed identity, specify:
-        // {
-        //   server: '<your-acr-name>.azurecr.io',
-        //   identity: userIdentityResourceId
-        // }
       ]
     }
     template: {
@@ -55,7 +48,7 @@ resource openWebUIApp 'Microsoft.App/containerApps@2025-07-01' = {
           }
           env: [
             // Configure Open WebUI to use LiteLLM via the proxy URL and forward user info
-            { name: 'OPENAI_API_BASE_URL', value: 'http://${liteLLMName}:4000/v1' }
+            { name: 'OPENAI_API_BASE_URL', value: 'http://${liteLLMName}:4000' }
             { name: 'OPENAI_API_KEY', secretRef: 'azure-openai-key' }
             { name: 'OPENAI_API_VERSION', value: azureOpenAIApiVersion }
             { name: 'ENABLE_FORWARD_USER_INFO_HEADERS', value: 'True' }
@@ -72,8 +65,8 @@ resource openWebUIApp 'Microsoft.App/containerApps@2025-07-01' = {
         {
           name: 'openwebui-files'
           storageType: 'AzureFile'
-          storageName: 'openwebui-files' // matches envStorage name in environment
-          mountOptions: 'nobrl' // recommended for Azure Files when using SQLite
+          storageName: 'openwebui-files'  // entspricht dem envStorage-Namen in containerEnv.bicep
+          mountOptions: 'nobrl'           // empfohlen für Azure Files bei SQLite
         }
       ]
       scale: {
@@ -87,7 +80,7 @@ resource openWebUIApp 'Microsoft.App/containerApps@2025-07-01' = {
 // LiteLLM Container App (internal, not exposed publicly)
 resource liteLLMApp 'Microsoft.App/containerApps@2025-07-01' = {
   name: liteLLMName
-  location: resourceGroup().location
+  location: location
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
@@ -98,7 +91,7 @@ resource liteLLMApp 'Microsoft.App/containerApps@2025-07-01' = {
     managedEnvironmentId: envId
     configuration: {
       ingress: {
-        external: false // internal only, no public endpoint
+        external: true // internal only, no public endpoint
         targetPort: 4000
         transport: 'auto'
       }
@@ -106,6 +99,16 @@ resource liteLLMApp 'Microsoft.App/containerApps@2025-07-01' = {
         {
           name: 'azure-openai-key'
           keyVaultUrl: 'https://${keyVaultName}.vault.azure.net/secrets/AzureOpenAIKey'
+          identity: userIdentityResourceId
+        }
+        {
+          name: 'azure-postgres-url'
+          keyVaultUrl: 'https://${keyVaultName}.vault.azure.net/secrets/PostgresConnectionString'
+          identity: userIdentityResourceId
+        }
+        {
+          name: 'litellm-master-key'
+          keyVaultUrl: 'https://${keyVaultName}.vault.azure.net/secrets/LiteLLMMasterKey'
           identity: userIdentityResourceId
         }
       ]
@@ -125,12 +128,22 @@ resource liteLLMApp 'Microsoft.App/containerApps@2025-07-01' = {
             { name: 'AZURE_API_BASE', value: azureOpenAIBaseUrl }
             { name: 'AZURE_API_VERSION', value: azureOpenAIApiVersion }
             { name: 'AZURE_API_KEY', secretRef: 'azure-openai-key' }
-
+            { name: 'DATABASE_URL', secretRef: 'azure-postgres-url'}
+            { name: 'LITELLM_MASTER_KEY', secretRef: 'litellm-master-key' }
+          ]
+          volumeMounts: [
             {
-              name: 'MODEL_LIST'
-              value: '''[{"model_name":"gpt-4o-mini","litellm_provider":"azure","azure_deployment":"gpt-4o-mini"}]'''
+              volumeName: 'litellm-config'
+              mountPath: '/app/config'
             }
           ]
+        }
+      ]
+      volumes: [
+        {
+          name: 'litellm-config'
+          storageType: 'AzureFile'
+          storageName: 'litellm-config'
         }
       ]
       // no volume needed for LiteLLM in this prototype

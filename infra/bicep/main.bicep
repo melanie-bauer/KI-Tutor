@@ -1,96 +1,188 @@
-@description('Deployment location for all resources')
-param location string = resourceGroup().location
-
-@description('Name for the Azure Container Registry (must be globally unique)')
+// =====================
+// PARAMETERS
+// =====================
 param acrName string
+param workspaceName string
+param storageAccountName string
+param userIdentityName string
+param azureOpenAIName string
+param keyVaultName string
+param envName string
+param postgresServerName string
 
-@description('Name for the Container Apps managed environment')
-param envName string = 'schoolai-env'
+param postgresServerAdminLogin string
+@secure()
+param postgresServerAdminPassword string
 
-@description('Name for the Open WebUI container app')
-param openWebUIName string = 'openwebui-app'
-
-@description('Name for the LiteLLM container app')
-param liteLLMName string = 'litellm'
-
-@description('Container image for Open WebUI')
-param openWebUIImage string = 'ghcr.io/open-webui/open-webui:main'
-
-@description('Container image for LiteLLM proxy')
-param liteLLMImage string = 'ghcr.io/berriai/litellm:main-latest'
-
-@description('Azure OpenAI endpoint base URL (e.g., "https://<resource>.openai.azure.com")')
-param azureOpenAIBaseUrl string
-
-@description('Azure OpenAI API version (e.g., "2023-05-15")')
-param azureOpenAIApiVersion string = '2023-05-15'
+param location string = resourceGroup().location
+param adminObjectId string 
 
 @secure()
-@description('API key for Azure OpenAI (stored in Key Vault)')
-param azureOpenAIKey string
+param litellmMasterKey string
 
-@description('Name of the Azure Storage account (for file share)')
-param storageAccountName string
+param createOpenAIModels bool = false
+param createAzureOpenAI bool = false
+param azureOpenAIApiVersion string
 
-@description('Name of the file share for Open WebUI persistent storage')
-param fileShareName string = 'openwebui-fileshare'
+param openWebUIName string
+param litellmName string
+param openWebUIImage string
+param litellmImage string
 
-@description('Name of the Key Vault to create for secrets')
-param keyVaultName string
+// Neue Parameter für VNet
+param vnetName string = 'litellm-vnet'
+param containerSubnetName string = 'containerapps-subnet'
+param postgresSubnetName string = 'postgres-subnet'
+param privateDnsZoneName string = 'privatelink.postgres.database.azure.com'
 
-@description('Object ID of an admin user or group for Key Vault access policies')
-param adminObjectId string
+// =====================
+// MODULES
+// =====================
 
-// Deploy Azure Container Registry
+// ACR
 module acrModule './modules/acr.bicep' = {
-  name: 'deployACR'
+  name: 'deployAcr'
   params: {
     acrName: acrName
     location: location
   }
 }
 
-// Deploy Log Analytics workspace
-module logsModule './modules/logAnalytics.bicep' = {
-  name: 'deployLogAnalytics'
+// Azure OpenAI
+module azureOpenAIModule './modules/azureOpenAI.bicep' = if (createOpenAIModels) {
+  name: 'deployAzureOpenAI'
   params: {
-    workspaceName: '${envName}-logs'
+    openAIName: azureOpenAIName
+    openAiApiVersion: azureOpenAIApiVersion
+    createAzureOpenAI: createAzureOpenAI
     location: location
   }
 }
 
-// Deploy Storage account and file share
+// Log Analytics
+module logsModule './modules/logAnalytics.bicep' = {
+  name: 'deployLogAnalytics'
+  params: {
+    workspaceName: workspaceName
+    location: location
+  }
+}
+
+// Storage
 module storageModule './modules/storage.bicep' = {
   name: 'deployStorage'
   params: {
     storageAccountName: storageAccountName
-    fileShareName: fileShareName
     location: location
   }
 }
 
-// Deploy User-Assigned Managed Identity (for Container Apps)
-resource userIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
-  name: '${envName}-identity'
+// =====================
+// NETWORK SETUP (VNet + DNS)
+// =====================
+
+resource vnet 'Microsoft.Network/virtualNetworks@2023-05-01' = {
+  name: vnetName
+  location: location
+  properties: {
+    addressSpace: {
+      addressPrefixes: ['10.10.0.0/16']
+    }
+    subnets: [
+      {
+        name: containerSubnetName
+        properties: {
+          addressPrefix: '10.10.0.0/23'
+        }
+      }
+      {
+        name: postgresSubnetName
+        properties: {
+          addressPrefix: '10.10.2.0/23'
+          delegations: [
+            {
+              name: 'pgDelegation'
+              properties: {
+                serviceName: 'Microsoft.DBforPostgreSQL/flexibleServers'
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+
+resource privateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: privateDnsZoneName
+  location: 'global'
+}
+
+resource dnsLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = {
+  parent: privateDnsZone
+  name: '${vnet.name}-link'
+  properties: {
+    virtualNetwork: {
+      id: vnet.id
+    }
+    registrationEnabled: false
+  }
+}
+
+// =====================
+// POSTGRES (PRIVATE)
+// =====================
+module postgresModule './modules/postgres.bicep' = {
+  name: 'deployPostgres'
+  params: {
+    serverName: postgresServerName
+    administratorLogin: postgresServerAdminLogin
+    administratorLoginPassword: postgresServerAdminPassword
+    location: location
+    vnetId: vnet.id
+    subnetName: postgresSubnetName
+    privateDnsZoneArmResourceId: privateDnsZone.id
+  }
+}
+
+// =====================
+// MANAGED IDENTITY
+// =====================
+resource userIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2018-11-30' = {
+  name: userIdentityName
   location: location
 }
 
-// Deploy Key Vault and store the Azure OpenAI API key
-module kvModule './modules/keyvault.bicep' = {
+// =====================
+// KEY VAULT
+// =====================
+var azureOpenAIResourceId = resourceId('Microsoft.CognitiveServices/accounts', azureOpenAIName)
+var azureOpenAIEndpointVal = !createAzureOpenAI 
+  ? reference(azureOpenAIResourceId, azureOpenAIApiVersion, 'full').properties.endpoint 
+  : azureOpenAIModule.outputs.azureOpenAIEndpoint
+var azureOpenAIKeyVal = !createAzureOpenAI 
+  ? listKeys(azureOpenAIResourceId, azureOpenAIApiVersion).key1 
+  : azureOpenAIModule.outputs.azureOpenAIKey
+
+module keyVaultModule './modules/keyVault.bicep' = {
   name: 'deployKeyVault'
   params: {
     keyVaultName: keyVaultName
     location: location
+    openAIKeySecretValue: azureOpenAIKeyVal
     adminObjectId: adminObjectId
-    // Pass the Managed Identity principal for Key Vault access policy
     managedIdentityObjectId: userIdentity.properties.principalId
-    // Secrets to initialize in Key Vault:
-    openAIKeySecretValue: azureOpenAIKey
+    postgresPasswordSecretValue: postgresServerAdminPassword
+    postgresUsernameSecretValue: postgresServerAdminLogin
+    postgresURLSecretValue: 'postgresql://${postgresServerAdminLogin}:${postgresServerAdminPassword}@${postgresServerName}.postgres.database.azure.com:5432/${postgresServerName}?sslmode=require'
+    litellmMasterKeySecretValue: litellmMasterKey
   }
 }
 
-// Deploy Container Apps Environment (with Azure Files volume mount)
-module envModule './modules/containerEnv.bicep' = {
+// =====================
+// CONTAINER ENVIRONMENT (VNet Integration)
+// =====================
+module containerEnvModule './modules/containerEnv.bicep' = {
   name: 'deployContainerEnv'
   params: {
     envName: envName
@@ -99,25 +191,28 @@ module envModule './modules/containerEnv.bicep' = {
     logsKey: logsModule.outputs.workspaceKey
     storageAccountName: storageModule.outputs.storageAccountName
     storageAccountKey: storageModule.outputs.storageAccountKey
-    fileShareName: storageModule.outputs.fileShareName
+    openWebUIShareName: storageModule.outputs.openWebUIShareName
+    liteLLMShareName: storageModule.outputs.litellmConfigShareName
+    vnetId: vnet.id
+    subnetName: containerSubnetName
   }
 }
 
-// Deploy the Open WebUI and LiteLLM container apps
-module appsModule './modules/containerApps.bicep' = {
+// =====================
+// CONTAINER APPS (LiteLLM + OpenWebUI)
+// =====================
+module containerAppsModule './modules/containerApps.bicep' = {
   name: 'deployContainerApps'
   params: {
     openWebUIName: openWebUIName
-    liteLLMName: liteLLMName
+    liteLLMName: litellmName
     openWebUIImage: openWebUIImage
-    liteLLMImage: liteLLMImage
-    envId: envModule.outputs.environmentId
+    liteLLMImage: litellmImage
+    envId: containerEnvModule.outputs.environmentId
     userIdentityResourceId: userIdentity.id
     keyVaultName: keyVaultName
-    azureOpenAIBaseUrl: azureOpenAIBaseUrl
+    azureOpenAIBaseUrl: azureOpenAIEndpointVal
     azureOpenAIApiVersion: azureOpenAIApiVersion
+    location: location
   }
-  dependsOn: [
-    kvModule
-  ]
 }

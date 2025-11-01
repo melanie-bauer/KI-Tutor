@@ -1,34 +1,54 @@
-@description('Name der Azure OpenAI Resource')
 param openAIName string
+param location string
+param createAzureOpenAI bool = false
 
-@description('Name des Model Deployments in der OpenAI Resource')
-param openAIDeploymentName string
+param openAiApiVersion string
 
-// Azure OpenAI Service Ressource (Cognitive Services Account vom Typ OpenAI)
-resource openAIAccount 'Microsoft.CognitiveServices/accounts@2023-05-01' existing = {
+resource openAIService 'Microsoft.CognitiveServices/accounts@2025-09-01' existing = {
   name: openAIName
 }
 
-// Deployment des GPT-4o Modells innerhalb der OpenAI Resource
-resource openAIModelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2023-05-01' = {
-  name: openAIDeploymentName
-  parent: openAIAccount
-  sku: {
-    name: 'Standard'
-    capacity: 1    // eine Instanz des Modells
-  }
+resource openAIServiceCreated 'Microsoft.CognitiveServices/accounts@2025-09-01' = if (createAzureOpenAI) {
+  name: openAIName
+  location: location
+  sku: { name: 'S0' }
+  kind: 'OpenAI'
   properties: {
-    model: {
-      name: 'gpt-4o-mini'        // Modell-Name (GPT-4o Mini Variante)
-      format: 'OpenAI'
-      version: '2024-07-18'      // Modellversion (Datumsversion für GPT-4o)
+    customSubDomainName: openAIName
+    publicNetworkAccess: 'Enabled'
+    networkAcls: {
+      defaultAction: 'Allow'
+      virtualNetworkRules: []
+      ipRules: []
     }
-    raiPolicyName: 'Microsoft.Default'
-    versionUpgradeOption: 'OnceCurrentVersionExpired'
   }
 }
 
+var models = loadJsonContent('../models.json').models
+
+// Loop over each model in the loaded JSON and create a resource for it
+@batchSize(1) // Ensure that the deployment is executed sequentially
+resource openAiModels 'Microsoft.CognitiveServices/accounts/deployments@2023-10-01-preview' = [for (model, i) in models: {
+  parent: openAIService
+  name: model.deploymentName
+  sku: {
+    name: 'Standard' // Assuming the SKU is "Standard" for all models; adjust as needed
+    capacity: model.capacity
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: model.modelName
+      version: model.version
+    }
+    versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
+    currentCapacity: model.capacity
+    raiPolicyName: 'Microsoft.Default'
+  }
+}]
+
 
 // Ausgabe der Endpunkt-URL und des API-Schlüssels für nachgelagerte Module
-output azureOpenAIEndpoint string = openAIAccount.properties.endpoint
-output azureOpenAIKey string = listKeys(openAIAccount.id, '2022-12-01').key1
+output azureOpenAIEndpoint string = reference(openAIService.id, openAiApiVersion, 'full').endpoint 
+output azureOpenAIKey string = listKeys(openAIService.id, openAiApiVersion).key1
+

@@ -8,7 +8,7 @@ resource acr 'Microsoft.ContainerRegistry/registries@2025-04-01' = {
     name: 'Basic'
   }
   properties: {
-    adminUserEnabled: false  // disable admin user for security
+    adminUserEnabled: false  // Admin-Benutzer aus Sicherheitsgründen deaktiviert
     publicNetworkAccess: 'Enabled'
   }
 }

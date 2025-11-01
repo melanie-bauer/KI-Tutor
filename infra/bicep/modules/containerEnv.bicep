@@ -1,13 +1,16 @@
 param envName string
 param location string
-param logsCustomerId string  // Log Analytics Workspace ID
-param logsKey string         // Log Analytics shared key
+param logsCustomerId string
+param logsKey string
 param storageAccountName string
 @secure()
 param storageAccountKey string
-param fileShareName string
+param openWebUIShareName string
+param liteLLMShareName string
 
-// Managed Environment for Container Apps
+param vnetId string
+param subnetName string
+
 resource containerEnv 'Microsoft.App/managedEnvironments@2025-07-01' = {
   name: envName
   location: location
@@ -19,18 +22,32 @@ resource containerEnv 'Microsoft.App/managedEnvironments@2025-07-01' = {
         sharedKey: logsKey
       }
     }
-    // (No virtual network integration in this prototype; environment will use default Azure network)
+    vnetConfiguration: {
+      infrastructureSubnetId: '${vnetId}/subnets/${subnetName}'
+    }
   }
 }
 
-// Attach Azure Files storage to the environment for persistent volumes
-resource envStorage 'Microsoft.App/managedEnvironments/storages@2025-07-01' = {
-  name: 'openwebui-files'   // identifier for the storage mount in this env
+resource envStorageOpenWebUI 'Microsoft.App/managedEnvironments/storages@2025-07-01' = {
+  name: 'openwebui-files'
   parent: containerEnv
   properties: {
     azureFile: {
       accountName: storageAccountName
-      shareName: fileShareName
+      shareName: openWebUIShareName
+      accountKey: storageAccountKey
+      accessMode: 'ReadWrite'
+    }
+  }
+}
+
+resource envStorageLiteLLM 'Microsoft.App/managedEnvironments/storages@2025-07-01' = {
+  name: 'litellm-config'
+  parent: containerEnv
+  properties: {
+    azureFile: {
+      accountName: storageAccountName
+      shareName: liteLLMShareName
       accountKey: storageAccountKey
       accessMode: 'ReadWrite'
     }
